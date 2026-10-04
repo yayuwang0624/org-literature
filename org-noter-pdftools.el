@@ -1,4 +1,4 @@
-;;; org-noter-pdftools.el --- Integration between org-pdftools and org-noter
+;;; org-noter-pdftools.el --- Integration between org-pdftools and org-noter  -*- lexical-binding: t; -*-
 ;; Copyright (C) 2020 Alexander Fu Xi
 
 ;; Author: Alexander Fu Xi <fuxialexander@gmail.com>

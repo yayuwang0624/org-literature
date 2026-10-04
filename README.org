@@ -1,120 +1,168 @@
-#+TITLE: org-pdftools: a custom org link type for pdf-tools
+#+TITLE: org-literature
 
-This project was inspired by and built upon ~org-pdfview~ from @markus1189.
-* Installation
+A paper library for Emacs, built on [[https://github.com/emacs-citar/citar][citar]], [[https://github.com/org-noter/org-noter][org-noter]] and [[https://github.com/vedang/pdf-tools][pdf-tools]].
 
-You can now install ~org-pdftools~ and ~org-noter-pdftools~ from MELPA!
+All papers live in one folder. One BibTeX file holds every entry, PDFs are
+named after their citation key, and each paper has one org note.
 
-[[https://melpa.org/#/org-pdftools][file:https://melpa.org/packages/org-pdftools-badge.svg]]
+#+begin_example
+literature/
+├── refs.bib        one entry per paper, tags in the keywords field
+├── pdf/<key>.pdf   the papers
+└── note/<key>.org  one note per paper
+#+end_example
 
-[[https://melpa.org/#/org-pdftools][file:https://melpa.org/packages/org-noter-pdftools-badge.svg]]
+* What is in this repository
 
-Run ~M-x pdf-tools-install~ after installation of ~pdftools~ if you haven't done before.
-#+BEGIN_SRC elisp
-(use-package org-noter
+| File                    | What it does                                                       |
+|-------------------------+--------------------------------------------------------------------|
+| =org-literature.el=     | add papers, add PDFs, edit tags, suggest citation keys, find notes |
+| =org-pdftools.el=       | the =pdf:= org link type, pointing into a page or an annotation    |
+| =org-noter-pdftools.el= | precise org-noter notes tied to PDF annotations                    |
+
+=org-pdftools.el= and =org-noter-pdftools.el= come from
+[[https://github.com/fuxialexander/org-pdftools][fuxialexander/org-pdftools]], with a few fixes. Their history is kept in
+this repository.
+
+* Install
+
+Requirements are Emacs 29.1 or newer, citar, org-noter and pdf-tools.
+
+Clone the repository and load it from its folder.
+
+#+begin_src emacs-lisp
+(use-package org-literature
+  :load-path "~/Project/org-literature/"
+  :after citar
+  :demand t
   :config
-  ;; Your org-noter config ........
-  (require 'org-noter-pdftools))
+  (org-literature-mode))
+#+end_src
+
+Or let Emacs fetch it.
+
+#+begin_src emacs-lisp
+(use-package org-literature
+  :vc (:url "https://github.com/yayuwang0624/org-literature" :branch "master")
+  :after citar
+  :demand t
+  :config
+  (org-literature-mode))
+#+end_src
+
+* Setup
+
+Set the library folder before the package loads. The other three paths
+follow it unless you set them too.
+
+#+begin_src emacs-lisp
+(setq org-literature-directory "~/org/literature/")
+
+(use-package citar
+  :custom
+  (citar-bibliography (list org-literature-bibliography))
+  (citar-library-paths (list org-literature-pdf-directory))
+  (citar-notes-paths (list org-literature-notes-directory))
+  (citar-note-format-function #'org-literature-format-note))
+
+(use-package org-noter
+  :custom
+  (org-noter-notes-search-path (list org-literature-notes-directory))
+  (org-noter-find-additional-notes-functions '(org-literature-note-for-document)))
 
 (use-package org-pdftools
+  :load-path "~/Project/org-literature/"
   :hook (org-mode . org-pdftools-setup-link))
 
 (use-package org-noter-pdftools
-  :after org-noter
-  :config
-  ;; Add a function to ensure precise note is inserted
-  (defun org-noter-pdftools-insert-precise-note (&optional toggle-no-questions)
-    (interactive "P")
-    (org-noter--with-valid-session
-     (let ((org-noter-insert-note-no-questions (if toggle-no-questions
-                                                   (not org-noter-insert-note-no-questions)
-                                                 org-noter-insert-note-no-questions))
-           (org-pdftools-use-isearch-link t)
-           (org-pdftools-use-freepointer-annot t))
-       (org-noter-insert-note (org-noter--get-precise-info)))))
+  :load-path "~/Project/org-literature/"
+  :after org-noter)
+#+end_src
 
-  ;; fix https://github.com/weirdNox/org-noter/pull/93/commits/f8349ae7575e599f375de1be6be2d0d5de4e6cbf
-  (defun org-noter-set-start-location (&optional arg)
-    "When opening a session with this document, go to the current location.
-With a prefix ARG, remove start location."
-    (interactive "P")
-    (org-noter--with-valid-session
-     (let ((inhibit-read-only t)
-           (ast (org-noter--parse-root))
-           (location (org-noter--doc-approx-location (when (called-interactively-p 'any) 'interactive))))
-       (with-current-buffer (org-noter--session-notes-buffer session)
-         (org-with-wide-buffer
-          (goto-char (org-element-property :begin ast))
-          (if arg
-              (org-entry-delete nil org-noter-property-note-location)
-            (org-entry-put nil org-noter-property-note-location
-                           (org-noter--pretty-print-location location))))))))
-  (with-eval-after-load 'pdf-annot
-    (add-hook 'pdf-annot-activate-handler-functions #'org-noter-pdftools-jump-to-note)))
-#+END_SRC
+| Variable                         | Default                          |
+|----------------------------------+----------------------------------|
+| =org-literature-directory=       | =literature/= in =org-directory= |
+| =org-literature-bibliography=    | =refs.bib= in that folder        |
+| =org-literature-pdf-directory=   | =pdf/= in that folder            |
+| =org-literature-notes-directory= | =note/= in that folder           |
 
-* Latest release note
-- Incorporated https://github.com/weirdNox/org-noter/pull/93/commits/f8349ae7575e599f375de1be6be2d0d5de4e6cbf in Usage README
-- Added customizable variable ~org-pdftools-use-isearch-link~ and ~org-pdftools-use-freepointer-annot~ to control whether you will get prompt to create isearch/freepointer link if no existing annotations are found
+* Commands
 
-* Usage 
-In order to link a specific page of a .pdf-file in an org-file, use the following syntax:
-#+begin_example 
-[[pdf:~/file.pdf::3][Link to page 3]]
-#+end_example
+The package binds no keys. Bind the commands you use.
 
-When browsing a pdftools-buffer you can use =org-store-link= (by default =C-c l=) to get a link to this location withing the pdf -- even while marking some content in the .pdf. 
-Then use =org-insert-link= (by default =C-c C-l=) to create a link to this page and this place on the page:
+| Command                       | What it does                                                    |
+|-------------------------------+-----------------------------------------------------------------|
+| =org-literature-add-paper=    | add a paper from BibTeX, a DOI, an arXiv ID or link, or a title |
+| =org-literature-attach-pdf=   | save a PDF for a paper, from a file, a link, or its DOI         |
+| =org-literature-open-entry=   | jump to a paper's BibTeX entry                                  |
+| =org-literature-edit-tags=    | edit the tags of one paper                                      |
+| =org-literature-rename-tag=   | rename a tag in every paper, or remove it with an empty name    |
+| =org-literature-search-notes= | search the text of all notes with =consult-ripgrep=             |
+| =org-literature-search-pdfs=  | search the text of all PDFs with ripgrep-all                    |
+
+In a paper's note or PDF, the commands that take a paper use that paper.
+Elsewhere they ask you to pick one.
+
+** Adding a paper
+
+=org-literature-add-paper= reads the region, or offers the clipboard when it
+holds BibTeX, a DOI or an arXiv link. Otherwise it asks for input.
+
+| Input               | Source                                         |
+|---------------------+------------------------------------------------|
+| BibTeX              | used as it is, after cleanup                   |
+| a DOI or DOI link   | Crossref                                       |
+| an arXiv ID or link | arXiv                                          |
+| a title             | a Crossref search, showing close title matches |
+
+Then it suggests a key, asks for tags, and offers to download the PDF. A
+download is kept only when the file is a real PDF. The cleanup drops foreign
+=keywords=, =abstract= and =month= fields, keeps one link in =url=, and
+stops when the title is already in the library.
+
+Suggested keys are the first author, the year, and the system name before a
+colon, for example =yarom2016cachebleed=. Titles without a system name give
+the first two real title words, for example =brumley2003remotetiming=.
+
+** The Add PDF choice
+
+With =org-literature-mode= on, =citar-open= shows an /Add PDF/ choice for any
+paper without a PDF. Picking it runs =org-literature-attach-pdf=.
+
+* PDF links and precise notes
+
+These come from org-pdftools.
+
+A =pdf:= link points to a page, or to an annotation on a page.
+
 #+begin_example
+[[pdf:~/file.pdf::3][Link to page 3]]
 [[pdf:~/file.pdf::5++0.00;;annot-5-0][file.pdf: Page 5; Quoting: some text]]
 #+end_example
 
-* Current features
-The provided function includes:
-- [X] (Sort-of) backward compatibility with org-pdfview: simply change the link prefix from
-  ~pdfview:~ to ~pdf:~.
-- [X] The reason this URL prefix change was proposed is that ~pdftools:~ links can
-  also point to ~pdf-occur~ searchs. Multi-file search is also supported.
-- [X] There is also support for ~pdf-isearch~.
-- [X] Beyond the original link implementation that stores only file path and page
-  number, now you can store the precise location of annotations.
-- [X] If there are selected texts on the current PDF page, it will be ~marked-up~
-  using pdf-tools markup functions (by default, underline) automatically and the
-  corresponding annotation id is stored in the link.
+In a pdf-tools buffer, =org-store-link= stores the current page. With text
+selected, it also marks up the text and stores the annotation ID.
 
-- HTML exported link now have a "#page=n" postfix, which should make browsers like Chrome open the corresponding page.
-- You can now customize the link description format using ~org-pdftools-get-desc-function~
-- Added ~org-noter-pdftools-embed-org-note-to-pdf~, ~org-noter-pdftools-embed-all-org-note-to-pdf~ to copy one or all *org-noter annotation headings* (the ones with a ~annot-id~ and ~org-pdftools link~) to the corresponding PDF file.
-- Added ~org-noter-pdftools-embed-org-buffer-to-pdf~ to copy the whole *org-noter* buffer to a annotation in the left upper corner of the first page in the PDF.
-- Added ~org-noter-pdftools-jump-to-note~ config in the README.
-- The prefix of pdftools link can now be customized using ~org-pdftools-link-prefix~, and the default is now set to "pdf"
-- The ~org-pdftools-search-string-separator~ is now set to ~??~ to avoid org fontification problem
-- You can now specify how the path of pdf is stored using two function:
-- ~org-pdftools-path-generator~ takes ~buffer-file-name~ as an argument, and output a translated path. Default to ~abbreviate-file-name~
-- ~org-pdftools-path-resolver~ takes a translated path as an argument and translate it back to absolute path. Default to ~expand-file-name~
+With org-noter, =org-noter-pdftools-insert-precise-note-underline= and its
+siblings for highlight, squiggly and strikeout insert a note tied to one
+annotation. =org-noter-pdftools-jump-to-note= jumps from an annotation to its
+note. Add it to =pdf-annot-activate-handler-functions= to run it on a click.
 
+=org-noter-pdftools-embed-org-note-to-pdf= copies a note into its PDF
+annotation, and =org-noter-pdftools-embed-all-org-note-to-pdf= copies all of
+them.
 
-* Integration with ~org-noter~
-You can use the vanilla ~org-noter~ now.
+* Development
 
-- [X] Integrate with ~org-noter~, such that ~org-noter~ can remember the precise
-  location (in the resolution of the exact annotation).
-- [X] Jump from a PDF annotation to a associated org-heading ~org-noter-sync-*~ and
-  ~org-noter-jump-to-heading~.
-- [X] Transform old org-noter notes to newer ones and sync with the corresponding
-  PDF. ~org-noter-convert-old-notes~
-- [-] PDF annotation will have full and synced information with the associated
-  org-note. (Besides the note content, each annotate will record the IDs of the
-  corresponding org heading and potentially even it's parent org heading, such
-  that tree-rebuild is possible.)
+#+begin_src sh
+make test      # ERT tests, each on a temporary library
+make compile   # byte-compile, warnings are errors
+make clean
+#+end_src
 
-* Planed features
-This is the first step of a set of overhauls of Emacs PDF notetaking experience.
-The features below are planned (either in this package or as PR to other
-packages):
-- [-] Optionally grab image/text excerpt from the PDF and insert below the
-  corresponding org-heading.
-  Please refer to ~pdf-view-extract-region-image~, not sure what's the best way
-  to integrate it.
-- [ ] Link export with image/text-based excerpt from the PDF.
-- [ ] (Long-term) Org <-> PDF Annotation converter.
+The Makefile loads packages from =~/.emacs.d/elpa=. Set =ELPA= to use
+another folder.
+
+* License
+
+GPL-3.0 or later, the same as org-pdftools. See =LICENSE=.
