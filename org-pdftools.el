@@ -146,7 +146,7 @@ with `TO-EXPORT' when exporting links. Also use reverse translation from
 
 (defun org-pdftools-abbreviate-file-name (path)
   "Abbreviate `PATH' using `org-pdftools-path-translations'."
-  (let ((translation-rule (find-if (lambda (rule)
+  (let ((translation-rule (cl-find-if (lambda (rule)
                                      (cl-destructuring-bind (from . to) rule
                                        (string-prefix-p to path)))
                                    org-pdftools-path-translations)))
@@ -161,7 +161,7 @@ with `TO-EXPORT' when exporting links. Also use reverse translation from
   "Expand `PATH' using `RULES'.
 - `RULES' is an alist of (FROM . TO).
 If no rules match, `PATH' is returned as it is."
-  (let ((translation-rule (find-if (lambda (rule)
+  (let ((translation-rule (cl-find-if (lambda (rule)
                                      (cl-destructuring-bind (from . to) rule
                                        (string-prefix-p from path)))
                                    rules)))
@@ -226,7 +226,7 @@ Returns components of the path"
 (defun org-pdftools-open-pdftools (link)
   "Internal function to open org-pdftools LINK."
   (let ((pdf-link (org-pdftools-parse-link link)))
-    (cond ((getf pdf-link :path)
+    (cond ((cl-getf pdf-link :path)
            (cl-destructuring-bind (&key path page height annot-id search-string) pdf-link
              (when (and path
                         (not (string-empty-p path)))
@@ -444,18 +444,19 @@ Returns components of the path"
   (concat file ".pdf: Page " page (when text (concat "; Quoting: " text))))
 
 ;;;###autoload
-(defun org-pdftools-open (link)
+(defun org-pdftools-open (link &optional arg)
   "Function to open org-pdftools LINK."
-  (if (and (display-graphic-p)
+  (if (and (not arg)
+           (display-graphic-p)
            (featurep 'pdf-tools))
       (org-pdftools-open-pdftools
        link)
     (if (bound-and-true-p org-pdftools-open-custom-open)
         (funcall org-pdftools-open-custom-open link)
       (let ((pdf-link (org-pdftools-parse-link link)))
-        (if (getf pdf-link :occur-search-string)
+        (if (cl-getf pdf-link :occur-search-string)
             (message "Please install pdf-tools to open pdf-occur links")
-          (org-open-file (getf pdf-link :path)))))))
+          (org-open-file (cl-getf pdf-link :path)))))))
 
 ;;;###autoload
 (defun org-pdftools-store-link ()
