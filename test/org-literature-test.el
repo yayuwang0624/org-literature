@@ -176,6 +176,67 @@
       (org-literature-mode -1))
     (should-not (advice-member-p #'org-literature--offer-add-pdf 'citar--get-resource-candidates))))
 
+(defun org-literature-test--fake-json (url)
+  "Answer URL like Crossref with no match and Semantic Scholar with three papers."
+  (if (string-match-p "crossref" url)
+      '((message (items ((title "Something Else Entirely") (DOI . "10.1/x")))))
+    `((data ((title . "Mohabi: Disaggregating and Sandboxing the Firefox JavaScript Engine")
+             (venue . "USENIX Security") (year . 2026)
+             (authors ((name . "Shravan Narayan")))
+             (externalIds (CorpusId . 1))
+             (citationStyles (bibtex . "@['Conference']{Narayan2026Mohabi,\n title = {Mohabi: Disaggregating and Sandboxing the Firefox JavaScript Engine},\n author = {Shravan Narayan},\n year = {2026}\n}"))
+             (openAccessPdf (url . "https://example.org/mohabi.pdf")))
+            ((title . "Mohabi: Disaggregating and Sandboxing the Firefox JavaScript Engine (extended)")
+             (externalIds (ArXiv . "2601.01234")))
+            ((title . "Mohabi: Disaggregating and Sandboxing the Firefox JavaScript Engine, journal")
+             (externalIds (DOI . "10.1145/9999")))
+            ((title . "Unrelated Paper") (externalIds (DOI . "10.1/y")))))))
+
+(ert-deftest org-literature-test-title-search-fallback ()
+  (cl-letf (((symbol-function 'org-literature--fetch-json) #'org-literature-test--fake-json))
+    (let ((choices (org-literature--semantic-scholar-choices
+                    "Mohabi: Disaggregating and Sandboxing the Firefox JavaScript Engine")))
+      (should (= (length choices) 3))
+      (should (equal (cdr (nth 1 choices)) '(arxiv "2601.01234")))
+      (should (equal (cdr (nth 2 choices)) '(doi "10.1145/9999")))
+      (should (string-prefix-p "@inproceedings{Narayan2026Mohabi," (nth 2 (nth 0 choices))))
+      (should (equal (nth 3 (nth 0 choices)) "https://example.org/mohabi.pdf")))
+    (cl-letf (((symbol-function 'completing-read) (lambda (_prompt table &rest _) (car (all-completions "" table)))))
+      (should (equal (car (org-literature--pick-by-title
+                           "Mohabi: Disaggregating and Sandboxing the Firefox JavaScript Engine"))
+                     'bibtex)))
+    (should (equal (cadr (should-error (org-literature--pick-by-title "No Such Paper Title At All")
+                                       :type 'user-error))
+                   "No close match on Crossref or Semantic Scholar for \"No Such Paper Title At All\".  Paste its BibTeX instead"))))
+
+(ert-deftest org-literature-test-add-paper-by-title ()
+  (org-literature-test--with-library
+    (org-literature-test--refresh)
+    (let (downloads)
+      (cl-letf (((symbol-function 'org-literature--fetch-json) #'org-literature-test--fake-json)
+                ((symbol-function 'completing-read) (lambda (_prompt table &rest _) (car (all-completions "" table))))
+                ((symbol-function 'read-string) (lambda (_prompt &optional initial &rest _) initial))
+                ((symbol-function 'completing-read-multiple) (lambda (&rest _) '("isolation")))
+                ((symbol-function 'y-or-n-p) (lambda (_) t))
+                ((symbol-function 'org-literature--download-pdf)
+                 (lambda (key links) (push (cons key links) downloads) t)))
+        (org-literature-add-paper "Mohabi: Disaggregating and Sandboxing the Firefox JavaScript Engine")
+        (org-literature-test--refresh)
+        (should (citar-get-entry "narayan2026mohabi"))
+        (should (equal (citar-get-value "keywords" "narayan2026mohabi") "isolation"))
+        (should (equal downloads '(("narayan2026mohabi" "https://example.org/mohabi.pdf"))))))))
+
+(ert-deftest org-literature-test-mode-setup ()
+  (should (featurep 'org-pdftools))
+  (should (featurep 'org-noter-pdftools))
+  (org-literature-mode 1)
+  (unwind-protect
+      (progn
+        (should (org-link-get-parameter "pdf" :follow))
+        (should (memq #'org-noter-pdftools-jump-to-note pdf-annot-activate-handler-functions)))
+    (org-literature-mode -1))
+  (should-not (memq #'org-noter-pdftools-jump-to-note pdf-annot-activate-handler-functions)))
+
 (ert-deftest org-literature-test-note-for-document ()
   (org-literature-test--with-library
     (org-literature-test--refresh)

@@ -20,6 +20,7 @@ literature/
 | =org-pdftools.el=       | the =pdf:= org link type, pointing into a page or an annotation    |
 | =org-noter-pdftools.el= | precise org-noter notes tied to PDF annotations                    |
 
+Install and load only =org-literature=. It loads the other two files itself.
 =org-pdftools.el= and =org-noter-pdftools.el= come from
 [[https://github.com/fuxialexander/org-pdftools][fuxialexander/org-pdftools]], with a few fixes. Their history is kept in
 this repository.
@@ -69,15 +70,10 @@ follow it unless you set them too.
   :custom
   (org-noter-notes-search-path (list org-literature-notes-directory))
   (org-noter-find-additional-notes-functions '(org-literature-note-for-document)))
-
-(use-package org-pdftools
-  :load-path "~/Project/org-literature/"
-  :hook (org-mode . org-pdftools-setup-link))
-
-(use-package org-noter-pdftools
-  :load-path "~/Project/org-literature/"
-  :after org-noter)
 #+end_src
+
+Loading =org-literature= also loads =org-pdftools= and =org-noter-pdftools=,
+so they need no =use-package= of their own.
 
 | Variable                         | Default                          |
 |----------------------------------+----------------------------------|
@@ -108,12 +104,12 @@ Elsewhere they ask you to pick one.
 =org-literature-add-paper= reads the region, or offers the clipboard when it
 holds BibTeX, a DOI or an arXiv link. Otherwise it asks for input.
 
-| Input               | Source                                         |
-|---------------------+------------------------------------------------|
-| BibTeX              | used as it is, after cleanup                   |
-| a DOI or DOI link   | Crossref                                       |
-| an arXiv ID or link | arXiv                                          |
-| a title             | a Crossref search, showing close title matches |
+| Input               | Source                                                       |
+|---------------------+--------------------------------------------------------------|
+| BibTeX              | used as it is, after cleanup                                 |
+| a DOI or DOI link   | Crossref                                                     |
+| an arXiv ID or link | arXiv                                                        |
+| a title             | Crossref, then Semantic Scholar, showing close title matches |
 
 Then it suggests a key, asks for tags, and offers to download the PDF. A
 download is kept only when the file is a real PDF. The cleanup drops foreign
@@ -124,10 +120,13 @@ Suggested keys are the first author, the year, and the system name before a
 colon, for example =yarom2016cachebleed=. Titles without a system name give
 the first two real title words, for example =brumley2003remotetiming=.
 
-** The Add PDF choice
+** org-literature-mode
 
-With =org-literature-mode= on, =citar-open= shows an /Add PDF/ choice for any
-paper without a PDF. Picking it runs =org-literature-attach-pdf=.
+The mode does three things.
+- It registers the =pdf:= link type in org.
+- It makes a click on a PDF annotation jump to its org-noter note.
+- It adds an /Add PDF/ choice to =citar-open= for any paper without a PDF.
+  Picking it runs =org-literature-attach-pdf=.
 
 * PDF links and precise notes
 
@@ -146,7 +145,7 @@ selected, it also marks up the text and stores the annotation ID.
 With org-noter, =org-noter-pdftools-insert-precise-note-underline= and its
 siblings for highlight, squiggly and strikeout insert a note tied to one
 annotation. =org-noter-pdftools-jump-to-note= jumps from an annotation to its
-note. Add it to =pdf-annot-activate-handler-functions= to run it on a click.
+note. =org-literature-mode= runs it when you click an annotation.
 
 =org-noter-pdftools-embed-org-note-to-pdf= copies a note into its PDF
 annotation, and =org-noter-pdftools-embed-all-org-note-to-pdf= copies all of

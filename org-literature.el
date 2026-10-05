@@ -3,8 +3,8 @@
 ;; Copyright (C) 2026 Yayu Wang
 
 ;; Author: Yayu Wang <st.saint.wyy@gmail.com>
-;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1") (citar "1.4"))
+;; Version: 0.2.0
+;; Package-Requires: ((emacs "29.1") (citar "1.4") (org "9.4") (org-noter "1.4.1") (pdf-tools "0.8"))
 ;; Keywords: bib, outlines, convenience
 ;; URL: https://github.com/yayuwang0624/org-literature
 
@@ -28,6 +28,10 @@
 ;; BibTeX, a DOI, an arXiv ID or a title, tagged through the keywords
 ;; field, and opened through `citar-open', which also offers to add a
 ;; missing PDF while `org-literature-mode' is on.
+;;
+;; The package also loads org-pdftools.el, which provides `pdf:' links,
+;; and org-noter-pdftools.el, which ties org-noter notes to PDF
+;; annotations.  Both come from fuxialexander/org-pdftools.
 
 ;;; Code:
 
@@ -35,6 +39,8 @@
 (require 'citar)
 (require 'json)
 (require 'org)
+(require 'org-noter-pdftools)
+(require 'org-pdftools)
 (require 'seq)
 (require 'subr-x)
 (require 'ucs-normalize)
@@ -243,32 +249,76 @@ In a paper note or PDF, KEY is that paper.  Elsewhere, pick one."
   (org-literature--fetch (concat "https://api.crossref.org/works/" doi "/transform/application/x-bibtex")
                          "application/x-bibtex"))
 
-(defun org-literature--crossref-pick (title)
-  "Search Crossref for TITLE and return the DOI of the picked paper.
-Only papers whose title holds most words of TITLE are offered."
-  (let* ((data (json-parse-string
-                (org-literature--fetch
-                 (concat "https://api.crossref.org/works?rows=20&select=DOI,title,author,container-title,issued"
-                         "&query.bibliographic=" (url-hexify-string title))
-                 "application/json")
-                :object-type 'alist :array-type 'list :null-object nil))
-         (want (org-literature--words title))
-         (choices
-          (delq nil
-                (mapcar
-                 (lambda (item)
-                   (let* ((name (car (alist-get 'title item)))
-                          (have (org-literature--words (or name "")))
-                          (hits (seq-count (lambda (word) (member word have)) want)))
-                     (when (and name want (>= hits (* 0.75 (length want))))
-                       (cons (format "%s | %s %s | %s" name
-                                     (or (car (alist-get 'container-title item)) "")
-                                     (or (caar (alist-get 'date-parts (alist-get 'issued item))) "")
-                                     (or (alist-get 'family (car (alist-get 'author item))) ""))
-                             (alist-get 'DOI item)))))
-                 (alist-get 'items (alist-get 'message data))))))
+(defun org-literature--close-title-p (title candidate)
+  "Return non-nil when CANDIDATE holds most words of TITLE."
+  (let ((want (org-literature--words title))
+        (have (org-literature--words (or candidate ""))))
+    (and want (>= (seq-count (lambda (word) (member word have)) want)
+                  (* 0.75 (length want))))))
+
+(defun org-literature--fetch-json (url)
+  "Return the JSON at URL as nested alists and lists."
+  (json-parse-string (org-literature--fetch url "application/json")
+                     :object-type 'alist :array-type 'list :null-object nil))
+
+(defun org-literature--crossref-choices (title)
+  "Search Crossref for TITLE and return close matches as (LABEL doi DOI)."
+  (let ((items (alist-get 'items (alist-get 'message
+                                            (org-literature--fetch-json
+                                             (concat "https://api.crossref.org/works?rows=20"
+                                                     "&select=DOI,title,author,container-title,issued"
+                                                     "&query.bibliographic=" (url-hexify-string title)))))))
+    (delq nil
+          (mapcar (lambda (item)
+                    (let ((name (car (alist-get 'title item))))
+                      (when (org-literature--close-title-p title name)
+                        (list (format "%s | %s %s | %s" name
+                                      (or (car (alist-get 'container-title item)) "")
+                                      (or (caar (alist-get 'date-parts (alist-get 'issued item))) "")
+                                      (or (alist-get 'family (car (alist-get 'author item))) ""))
+                              'doi (alist-get 'DOI item)))))
+                  items))))
+
+(defun org-literature--semantic-scholar-bibtex (bibtex)
+  "Fix the entry type of BIBTEX from Semantic Scholar, which can be a list."
+  (if (string-match "\\`[ \t\n]*@\\(\\[[^]{]*\\]\\)[ \t]*{" bibtex)
+      (replace-match (if (string-match-p "Conference" (match-string 1 bibtex)) "inproceedings" "article")
+                     t t bibtex 1)
+    bibtex))
+
+(defun org-literature--semantic-scholar-choices (title)
+  "Search Semantic Scholar for TITLE and return close matches.
+Each match is (LABEL doi DOI), (LABEL arxiv ID) or (LABEL bibtex BIBTEX PDF)."
+  (let ((papers (alist-get 'data
+                           (org-literature--fetch-json
+                            (concat "https://api.semanticscholar.org/graph/v1/paper/search?limit=10"
+                                    "&fields=title,venue,year,authors,externalIds,citationStyles,openAccessPdf"
+                                    "&query=" (url-hexify-string title))))))
+    (delq nil
+          (mapcar (lambda (paper)
+                    (let ((name (alist-get 'title paper))
+                          (ids (alist-get 'externalIds paper)))
+                      (when (org-literature--close-title-p title name)
+                        (cons (format "%s | %s %s | %s" name
+                                      (or (alist-get 'venue paper) "")
+                                      (or (alist-get 'year paper) "")
+                                      (or (car (last (split-string (or (alist-get 'name (car (alist-get 'authors paper))) ""))))
+                                          ""))
+                              (cond ((alist-get 'DOI ids) (list 'doi (alist-get 'DOI ids)))
+                                    ((alist-get 'ArXiv ids) (list 'arxiv (alist-get 'ArXiv ids)))
+                                    (t (list 'bibtex
+                                             (org-literature--semantic-scholar-bibtex
+                                              (or (alist-get 'bibtex (alist-get 'citationStyles paper)) ""))
+                                             (alist-get 'url (alist-get 'openAccessPdf paper)))))))))
+                  papers))))
+
+(defun org-literature--pick-by-title (title)
+  "Find the paper titled TITLE and return (KIND VALUE PDF).
+Search Crossref first, then Semantic Scholar, and offer only close matches."
+  (let ((choices (or (org-literature--crossref-choices title)
+                     (org-literature--semantic-scholar-choices title))))
     (unless choices
-      (user-error "No close match on Crossref for \"%s\".  Paste its BibTeX or DOI instead" title))
+      (user-error "No close match on Crossref or Semantic Scholar for \"%s\".  Paste its BibTeX instead" title))
     (cdr (assoc (completing-read
                  "Paper: "
                  (lambda (string predicate action)
@@ -478,17 +528,20 @@ Then offer to download PDF, or the PDF link found in the entry."
 (defun org-literature-add-paper (input)
   "Add a paper to the bibliography from INPUT.
 INPUT is BibTeX, a DOI or doi.org link, an arXiv ID or link, or a title
-searched on Crossref.  With an active region, INPUT is the region.  When
-the clipboard holds BibTeX, a DOI or an arXiv paper, offer to use it."
+searched on Crossref and Semantic Scholar.  With an active region, INPUT
+is the region.  When the clipboard holds BibTeX, a DOI or an arXiv paper,
+offer to use it."
   (interactive (list (org-literature--read-paper-input)))
-  (pcase-let ((`(,kind ,value) (org-literature--input-kind input)))
+  (pcase-let* ((`(,kind ,value) (org-literature--input-kind input))
+               (`(,kind ,value ,pdf) (if (eq kind 'title)
+                                          (org-literature--pick-by-title value)
+                                        (list kind value nil))))
     (org-literature--add-bibtex
      (pcase kind
        ('bibtex value)
        ('arxiv (org-literature--fetch (concat "https://arxiv.org/bibtex/" value) "text/plain"))
-       ('doi (org-literature--doi-bibtex value))
-       ('title (org-literature--doi-bibtex (org-literature--crossref-pick value))))
-     (and (eq kind 'arxiv) (concat "https://arxiv.org/pdf/" value)))))
+       ('doi (org-literature--doi-bibtex value)))
+     (or pdf (and (eq kind 'arxiv) (concat "https://arxiv.org/pdf/" value))))))
 
 (defun org-literature-search-notes ()
   "Search the text of every paper note."
@@ -507,14 +560,20 @@ the clipboard holds BibTeX, a DOI or an arXiv paper, offer to use it."
 
 ;;;###autoload
 (define-minor-mode org-literature-mode
-  "Offer an Add PDF choice in `citar-open' for papers without a PDF."
+  "Turn on the paper library.
+Register `pdf:' links, jump from a PDF annotation to its org-noter
+note, and offer an Add PDF choice in `citar-open' for papers without
+a PDF."
   :global t
   :group 'org-literature
   (if org-literature-mode
       (progn
+        (org-pdftools-setup-link)
+        (add-hook 'pdf-annot-activate-handler-functions #'org-noter-pdftools-jump-to-note)
         (advice-add 'citar--get-resource-candidates :around #'org-literature--offer-add-pdf)
         (advice-add 'citar--select-group-related-resources :around #'org-literature--group-add-pdf)
         (advice-add 'citar--open-resource :around #'org-literature--open-add-pdf))
+    (remove-hook 'pdf-annot-activate-handler-functions #'org-noter-pdftools-jump-to-note)
     (advice-remove 'citar--get-resource-candidates #'org-literature--offer-add-pdf)
     (advice-remove 'citar--select-group-related-resources #'org-literature--group-add-pdf)
     (advice-remove 'citar--open-resource #'org-literature--open-add-pdf)))

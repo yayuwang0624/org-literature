@@ -3,10 +3,8 @@
 
 ;; Author: Alexander Fu Xi <fuxialexander@gmail.com>
 ;; Maintainer: Yayu Wang <st.saint.wyy@gmail.com>
-;; Homepage: https://github.com/st-saint/org-pdftools
-;; Version: 1.4
+;; URL: https://github.com/yayuwang0624/org-literature
 ;; Keywords: convenience
-;; Package-Requires: ((emacs "26.1") (org "9.4") (pdf-tools "0.8") (org-pdftools "1.0") (org-noter "1.4.1"))
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
