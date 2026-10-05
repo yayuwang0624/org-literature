@@ -229,20 +229,37 @@ In a paper note or PDF, KEY is that paper.  Elsewhere, pick one."
           clip
         (read-string "Paper (title, DOI, arXiv ID or link): ")))))
 
-(defun org-literature--fetch (url accept)
-  "Return the body of URL, asking for the ACCEPT media type."
+(defconst org-literature--retry-delays '(2 4)
+  "Seconds to wait before each retry when a server answers 429.")
+
+(defun org-literature--fetch-once (url accept)
+  "Return the HTTP status and body of URL, asking for the ACCEPT media type."
   (let* ((url-request-extra-headers `(("Accept" . ,accept)))
          (buffer (or (url-retrieve-synchronously url t t 30)
-                     (user-error "No answer from %s" url))))
+                     (user-error "No answer from %s" (url-host (url-generic-parse-url url))))))
     (with-current-buffer buffer
       (unwind-protect
           (progn
-            (unless (eql (bound-and-true-p url-http-response-status) 200)
-              (user-error "%s answered %s" url (bound-and-true-p url-http-response-status)))
             (goto-char (point-min))
-            (re-search-forward "\r?\n\r?\n")
-            (decode-coding-string (buffer-substring-no-properties (point) (point-max)) 'utf-8))
+            (re-search-forward "\r?\n\r?\n" nil 'move)
+            (cons (bound-and-true-p url-http-response-status)
+                  (decode-coding-string (buffer-substring-no-properties (point) (point-max)) 'utf-8)))
         (kill-buffer)))))
+
+(defun org-literature--fetch (url accept)
+  "Return the body of URL, asking for the ACCEPT media type.
+Retry after a pause when the server answers 429, too many requests."
+  (let ((delays org-literature--retry-delays)
+        (answer (org-literature--fetch-once url accept)))
+    (while (and (eql (car answer) 429) delays)
+      (message "%s is busy, retrying in %d seconds..." (url-host (url-generic-parse-url url)) (car delays))
+      (sleep-for (pop delays))
+      (setq answer (org-literature--fetch-once url accept)))
+    (pcase (car answer)
+      (200 (cdr answer))
+      (429 (user-error "%s is busy (429, too many requests).  Try again in a minute"
+                       (url-host (url-generic-parse-url url))))
+      (status (user-error "%s answered %s" (url-host (url-generic-parse-url url)) status)))))
 
 (defun org-literature--doi-bibtex (doi)
   "Return the BibTeX entry of DOI from Crossref."

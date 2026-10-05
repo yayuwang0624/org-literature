@@ -226,6 +226,17 @@
         (should (equal (citar-get-value "keywords" "narayan2026mohabi") "isolation"))
         (should (equal downloads '(("narayan2026mohabi" "https://example.org/mohabi.pdf"))))))))
 
+(ert-deftest org-literature-test-fetch-retries-on-429 ()
+  (let ((answers (list '(429 . "") '(429 . "") '(200 . "ok")))
+        (org-literature--retry-delays '(0 0)))
+    (cl-letf (((symbol-function 'org-literature--fetch-once) (lambda (&rest _) (pop answers))))
+      (should (equal (org-literature--fetch "https://api.semanticscholar.org/x" "application/json") "ok"))))
+  (let ((org-literature--retry-delays '(0)))
+    (cl-letf (((symbol-function 'org-literature--fetch-once) (lambda (&rest _) '(429 . ""))))
+      (should (equal (cadr (should-error (org-literature--fetch "https://api.semanticscholar.org/x" "text/plain")
+                                         :type 'user-error))
+                     "api.semanticscholar.org is busy (429, too many requests).  Try again in a minute")))))
+
 (ert-deftest org-literature-test-mode-setup ()
   (should (featurep 'org-pdftools))
   (should (featurep 'org-noter-pdftools))
